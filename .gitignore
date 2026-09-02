@@ -1,6 +1,8 @@
 /data
 /models
-/scripts
+/scripts/*
+!/scripts/ascend_npu_smoke.py
+!/scripts/compare_alignment_tensors.py
 /diffusers
 /.vscode
 /.opencode
