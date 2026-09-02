@@ -98,17 +98,37 @@ def precompute_freqs_cis(dim: int, end: int = 1024, theta: float = 10000.0):
     return freqs_cis
 
 
-def rope_apply(x, freqs, num_heads):
+def prepare_rope_freqs_for_real(freqs, device):
+    """Normalize Wan RoPE frequencies to an explicit ``[..., real, imag]`` layout."""
+    if torch.is_complex(freqs):
+        freqs = torch.view_as_real(freqs)
+    if freqs.ndim == 0 or freqs.shape[-1] != 2:
+        raise ValueError(
+            "Real-valued Wan RoPE frequencies must have a final dimension of 2 "
+            f"for (cos, sin), but received shape {tuple(freqs.shape)}."
+        )
+    return freqs.to(device=device, dtype=torch.float32)
+
+
+def rope_apply_real(x, freqs, num_heads):
+    """Apply RoPE using real arithmetic; runnable on CPU for NPU regression tests."""
     x = rearrange(x, "b s (n d) -> b s n d", n=num_heads)
+    pairs = x.float().reshape(*x.shape[:-1], -1, 2)
+    freqs = prepare_rope_freqs_for_real(freqs, x.device).unsqueeze(0)
+    real, imag = pairs.unbind(dim=-1)
+    cos, sin = freqs.unbind(dim=-1)
+    rotated = torch.stack((real * cos - imag * sin, imag * cos + real * sin), dim=-1)
+    return rotated.flatten(2).to(x.dtype)
+
+
+def rope_apply(x, freqs, num_heads):
     if x.device.type == "npu":
         # Real-valued complex multiplication avoids complex128 and
         # view_as_complex kernels that are not consistently available on 910B.
-        pairs = x.float().reshape(*x.shape[:-1], -1, 2)
-        freqs = freqs.float().unsqueeze(0)
-        real, imag = pairs.unbind(dim=-1)
-        cos, sin = freqs.unbind(dim=-1)
-        rotated = torch.stack((real * cos - imag * sin, imag * cos + real * sin), dim=-1)
-        return rotated.flatten(2).to(x.dtype)
+        # Accept complex frequencies defensively because functional training
+        # paths may construct them independently of WanModel.forward.
+        return rope_apply_real(x, freqs, num_heads)
+    x = rearrange(x, "b s (n d) -> b s n d", n=num_heads)
     x_out = torch.view_as_complex(x.to(torch.float64).reshape(
         x.shape[0], x.shape[1], x.shape[2], -1, 2))
     x_out = torch.view_as_real(x_out * freqs).flatten(2)
@@ -550,7 +570,7 @@ class WanModel(torch.nn.Module):
             self.freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1)
         ], dim=-1).reshape(f * h * w, 1, -1)
         if x.device.type == "npu":
-            freqs = torch.view_as_real(freqs).to(device=x.device, dtype=torch.float32)
+            freqs = prepare_rope_freqs_for_real(freqs, x.device)
         else:
             freqs = freqs.to(x.device)
 

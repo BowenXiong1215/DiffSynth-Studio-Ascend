@@ -16,7 +16,7 @@ from ..diffusion import FlowMatchScheduler
 from ..core import ModelConfig, gradient_checkpoint_forward
 from ..diffusion.base_pipeline import BasePipeline, PipelineUnit
 
-from ..models.wan_video_dit import WanModel, sinusoidal_embedding_1d
+from ..models.wan_video_dit import WanModel, prepare_rope_freqs_for_real, sinusoidal_embedding_1d
 from ..models.wan_video_dit_s2v import rope_precompute
 from ..models.wan_video_text_encoder import WanTextEncoder, HuggingfaceTokenizer
 from ..models.wan_video_vae import WanVideoVAE
@@ -1621,7 +1621,7 @@ def model_fn_wan_video(
         dit.freqs[0][:f].view(f, 1, 1, -1).expand(f, h, w, -1),
         dit.freqs[1][:h].view(1, h, 1, -1).expand(f, h, w, -1),
         dit.freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1)
-    ], dim=-1).reshape(f * h * w, 1, -1).to(x.device)
+    ], dim=-1).reshape(f * h * w, 1, -1)
 
     # VAP 
     if vap is not None:
@@ -1659,7 +1659,7 @@ def model_fn_wan_video(
                 freqs_0.view(f, 1, 1, -1).expand(f, h, w, -1),
                 dit.freqs[1][:h].view(1, h, 1, -1).expand(f, h, w, -1),
                 dit.freqs[2][:w].view(1, 1, w, -1).expand(f, h, w, -1)
-            ], dim=-1).reshape(f * h * w, 1, -1).to(x.device)
+            ], dim=-1).reshape(f * h * w, 1, -1)
         if dit.wantodance_enable_global or dit.wantodance_enable_dynamicfps or dit.wantodance_enable_unimodel:
             if use_unified_sequence_parallel:
                 length = int(float(music_feature.shape[0]) / get_sequence_parallel_world_size()) * get_sequence_parallel_world_size()
@@ -1701,6 +1701,14 @@ def model_fn_wan_video(
                     dit.merged_audio_emb = music_feature
             else: 
                 dit.merged_audio_emb = music_feature
+
+    # Normalize RoPE after every optional branch has finished rebuilding it.
+    # The functional training path bypasses WanModel.forward, so it must not
+    # rely on the conversion performed there.
+    if x.device.type == "npu":
+        freqs = prepare_rope_freqs_for_real(freqs, x.device)
+    else:
+        freqs = freqs.to(x.device)
 
     # blocks
     if use_unified_sequence_parallel:
