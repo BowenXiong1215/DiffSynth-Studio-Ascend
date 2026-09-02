@@ -80,6 +80,7 @@ accelerate launch --num_processes "${NPROC_PER_NODE}" \
   --weight_decay 0 \
   --num_epochs 1 \
   --save_steps 1 \
+  --enable_csv_log \
   --remove_prefix_in_ckpt "pipe.dit." \
   --output_path "${OUTPUT_ROOT}/${MODEL}" \
   --lora_base_model dit \
