@@ -12,6 +12,9 @@ WIDTH="${WIDTH:-256}"
 NUM_FRAMES="${NUM_FRAMES:-9}"
 LORA_RANK="${LORA_RANK:-8}"
 DATASET_REPEAT="${DATASET_REPEAT:-1}"
+NUM_EPOCHS="${NUM_EPOCHS:-1}"
+SAVE_STEPS="${SAVE_STEPS:-1}"
+LORA_TARGET_MODULES="${LORA_TARGET_MODULES:-q,k,v,o}"
 DATA_ROOT="${DATA_ROOT:-data/diffsynth_example_dataset/wanvideo}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-models/train/ascend_smoke}"
 
@@ -78,12 +81,12 @@ accelerate launch --num_processes "${NPROC_PER_NODE}" \
   --model_id_with_origin_paths "${MODEL_PATHS}" \
   --learning_rate 1e-4 \
   --weight_decay 0 \
-  --num_epochs 1 \
-  --save_steps 1 \
+  --num_epochs "${NUM_EPOCHS}" \
+  --save_steps "${SAVE_STEPS}" \
   --enable_csv_log \
   --remove_prefix_in_ckpt "pipe.dit." \
   --output_path "${OUTPUT_ROOT}/${MODEL}" \
   --lora_base_model dit \
-  --lora_target_modules "q,k,v,o" \
+  --lora_target_modules "${LORA_TARGET_MODULES}" \
   --lora_rank "${LORA_RANK}" \
   "${EXTRA_ARGS[@]}"

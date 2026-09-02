@@ -1,0 +1,12 @@
+accelerate
+einops
+ftfy
+imageio[ffmpeg]
+librosa
+modelscope
+pandas
+peft
+protobuf
+safetensors
+sentencepiece
+transformers

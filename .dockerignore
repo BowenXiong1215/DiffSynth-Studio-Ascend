@@ -1,0 +1,13 @@
+.git
+.github
+data
+models
+outputs
+logs
+__pycache__
+*.py[cod]
+*.safetensors
+*.pth
+*.pt
+*.ckpt
+*.bin

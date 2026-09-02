@@ -1,76 +1,88 @@
-# Wan2.2 LoRA 昇腾 910B 部署与启动手册
+# Wan2.2 LoRA 昇腾 910B 操作说明书
 
-本文是一份可以直接照着执行的操作手册，覆盖从基础镜像、容器、Python 环境、
-DiffSynth-Studio 代码、ModelScope 权重与数据，到第一次 Wan2.2 TI2V-5B LoRA
-训练及结果验收的完整流程。
+本说明书覆盖从镜像构建、容器启动、模型与数据下载，到 Wan2.2 LoRA 冒烟训练和结果验收的完整流程。适用训练目标如下：
 
-首轮目标是正确性闭环，不追求速度和生成质量。建议严格按以下顺序操作：
+| 模型 | 任务 | 训练单元 |
+| --- | --- | --- |
+| Wan2.2-TI2V-5B | T2V | 1 个 LoRA |
+| Wan2.2-TI2V-5B | I2V | 1 个 LoRA |
+| Wan2.2-T2V-A14B | T2V | high-noise、low-noise 各 1 个 LoRA |
+| Wan2.2-I2V-A14B | I2V | high-noise、low-noise 各 1 个 LoRA |
 
-1. 单卡、BF16、PyTorch SDPA；
-2. 无权重 NPU smoke；
-3. TI2V-5B 文生视频 LoRA 一个 step；
-4. TI2V-5B 图生视频 LoRA 一个 step；
-5. 小数据过拟合；
-6. 最后再扩展到 A14B、DDP 和性能优化。
+建议先完成 TI2V-5B T2V 冒烟训练，再依次执行 TI2V-5B I2V、T2V-A14B 和 I2V-A14B。
 
 ## 1. 目录约定
 
-本文统一使用以下目录：
+宿主机工作根目录：
+
+```bash
+export WORK_ROOT=/hpc-to-ds-0115/x00876811
+export REPO_ROOT=${WORK_ROOT}/DiffSynth-Studio-Ascend
+export MODEL_ROOT=${WORK_ROOT}/models
+export OUTPUT_ROOT=${WORK_ROOT}/outputs
+export LOG_ROOT=${WORK_ROOT}/logs
+
+mkdir -p "${MODEL_ROOT}" "${OUTPUT_ROOT}" "${LOG_ROOT}" "${REPO_ROOT}/data"
+```
+
+本文后续命令均使用以上目录。
+
+## 2. 获取代码
+
+```bash
+cd "${WORK_ROOT}"
+git clone https://github.com/BowenXiong1215/DiffSynth-Studio-Ascend.git
+cd "${REPO_ROOT}"
+```
+
+已存在仓库时同步主分支：
+
+```bash
+cd "${REPO_ROOT}"
+git pull origin main
+```
+
+## 3. 构建配套镜像
+
+镜像基于以下 Quay 基础镜像：
 
 ```text
-/hpc-to-ds-0115/x00876811/
-├── DiffSynth-Studio-Ascend/    # 代码
-├── models/                     # 模型权重
-├── outputs/                    # LoRA checkpoint
-└── logs/                       # 日志和环境记录
+quay.io/ascend/mindspeed-mm:v26.1.0-cann9.1.0-torch_npu2.7.1.post8-910b-ubuntu22.04-py3.11
 ```
 
-创建目录：
+仓库中的 `docker/Dockerfile.ascend` 固定了以下框架组合：
+
+```text
+torch       2.7.1
+torch-npu   2.7.1.post8
+torchvision 0.22.1
+torchaudio  2.7.1
+```
+
+它同时安装训练依赖、音视频系统库、DiffSynth-Studio-Ascend，并在构建阶段执行版本检查和 Wan RoPE 回归测试。
+
+构建镜像：
 
 ```bash
-mkdir -p /hpc-to-ds-0115/x00876811/{models,outputs,logs}
+cd "${REPO_ROOT}"
+docker build --pull \
+  -f docker/Dockerfile.ascend \
+  -t diffsynth-wan22-ascend:torch2.7.1-cann9.1 .
 ```
 
-建议至少准备 100 GB 空间用于 TI2V-5B；如果后续还要下载 T2V-A14B 和
-I2V-A14B，建议预留 200～300 GB：
+构建成功的最后阶段会显示：
 
-```bash
-df -h /hpc-to-ds-0115/x00876811
+```text
+DiffSynth Ascend framework versions: OK
+Ran 4 tests
+OK
 ```
 
-## 2. 检查宿主机
-
-在宿主机执行：
-
-```bash
-uname -m
-npu-smi info
-docker version
-cat /usr/local/Ascend/driver/version.info
-```
-
-`npu-smi info` 必须能看到 910B 设备。本文使用的容器是 CANN 9.1.0，宿主机
-驱动必须与它兼容。
-
-## 3. 拉取基础镜像
-
-使用已经过 Quay Registry manifest 验证的多架构镜像：
-
-```bash
-docker pull \
-  quay.io/ascend/mindspeed-mm:v26.1.0-cann9.1.0-torch_npu2.7.1.post8-910b-ubuntu22.04-py3.11
-```
-
-该镜像包含 CANN 9.1.0、PyTorch 2.7.1、TorchNPU 2.7.1.post8，并同时提供
-`linux/amd64` 和 `linux/arm64` manifest。
-
-## 4. 启动单卡开发容器
-
-以下示例只透传 0 号 NPU。多卡验证应在单卡闭环通过后进行。
+## 4. 启动训练容器
 
 ```bash
 docker run --rm -it \
-  --name diffsynth-wan22-dev \
+  --name diffsynth-wan22 \
   --network=host \
   --ipc=host \
   --device=/dev/davinci0 \
@@ -82,258 +94,87 @@ docker run --rm -it \
   -v /usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64 \
   -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
   -v /etc/ascend_install.info:/etc/ascend_install.info \
-  -v /hpc-to-ds-0115/x00876811:/hpc-to-ds-0115/x00876811 \
-  quay.io/ascend/mindspeed-mm:v26.1.0-cann9.1.0-torch_npu2.7.1.post8-910b-ubuntu22.04-py3.11 \
-  bash
+  -v "${MODEL_ROOT}:${MODEL_ROOT}" \
+  -v "${OUTPUT_ROOT}:${OUTPUT_ROOT}" \
+  -v "${LOG_ROOT}:${LOG_ROOT}" \
+  -v "${REPO_ROOT}/data:/workspace/DiffSynth-Studio-Ascend/data" \
+  diffsynth-wan22-ascend:torch2.7.1-cann9.1
 ```
 
-如果运行平台已经自动透传 NPU 和挂载数据目录，可以跳过相应参数，但容器内必须
-能访问 `/dev/davinci0` 和上述工作目录。
-
-## 5. 验证基础镜像
-
-进入容器后执行：
-
-```bash
-python - <<'PY'
-import torch
-import torch_npu
-
-print("torch:", torch.__version__)
-print("torch_npu:", torch_npu.__version__)
-print("NPU available:", torch.npu.is_available())
-print("NPU count:", torch.npu.device_count())
-PY
-```
-
-期望看到 PyTorch 2.7.1、TorchNPU 2.7.1.post8，并且 `NPU available` 为
-`True`。
-
-## 6. 准备代码
-
-推荐直接克隆最新仓库：
-
-```bash
-cd /hpc-to-ds-0115/x00876811
-git clone https://github.com/BowenXiong1215/DiffSynth-Studio-Ascend.git
-cd DiffSynth-Studio-Ascend
-```
-
-如果使用压缩包，解压后应确保只有一层代码目录：
+进入容器后的代码目录为：
 
 ```text
-/hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend/pyproject.toml
+/workspace/DiffSynth-Studio-Ascend
 ```
 
-而不是：
+## 5. 验证 NPU 运行环境
 
-```text
-/hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend/DiffSynth-Studio-Ascend/pyproject.toml
-```
-
-如果出现双层目录，在外层目录执行：
+在容器内执行：
 
 ```bash
-cd /hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend
-shopt -s dotglob nullglob
-mv DiffSynth-Studio-Ascend/* .
-shopt -u dotglob nullglob
-rmdir DiffSynth-Studio-Ascend
-```
-
-## 7. 安装 Python 依赖
-
-### 7.1 安装 DiffSynth 本身
-
-使用 editable、无依赖、无隔离方式安装，避免 pip 覆盖镜像内配套的 PyTorch 和
-TorchNPU：
-
-```bash
-cd /hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend
-python -m pip install -vvv --no-build-isolation --no-deps -e .
-```
-
-### 7.2 锁住 NPU 框架版本
-
-创建约束文件：
-
-```bash
-cat >/tmp/diffsynth-npu-constraints.txt <<'EOF'
-torch==2.7.1
-torch-npu==2.7.1.post8
-torchvision==0.22.1
-torchaudio==2.7.1
-EOF
-```
-
-安装运行依赖。约束文件的作用是：如果某个包要求升级 PyTorch，pip 应直接报冲突，
-而不是静默换成 CUDA 版本。
-
-```bash
-python -m pip install -v --progress-bar on \
-  -c /tmp/diffsynth-npu-constraints.txt \
-  transformers \
-  "imageio[ffmpeg]" \
-  safetensors \
-  einops \
-  modelscope \
-  ftfy \
-  pandas \
-  accelerate \
-  peft \
-  sentencepiece \
-  librosa
-```
-
-如果需要安装 `torchvision` 或 `torchaudio`，必须与 PyTorch 2.7.1 配套。x86_64
-使用 CPU wheel：
-
-```bash
-if [ "$(uname -m)" = "x86_64" ]; then
-  python -m pip install --force-reinstall --no-deps \
-    --index-url https://download.pytorch.org/whl/cpu \
-    "torchvision==0.22.1+cpu" \
-    "torchaudio==2.7.1+cpu"
-else
-  python -m pip install --force-reinstall --no-deps \
-    "torchvision==0.22.1" \
-    "torchaudio==2.7.1"
-fi
-```
-
-不要为了解决 `libcudart.so` 缺失而安装 CUDA。出现 `libcudart.so.13` 通常意味着
-误装了 CUDA 版 PyTorch、torchvision 或 torchaudio，应恢复为上述 CPU/NPU 配套
-版本。
-
-安装后检查：
-
-```bash
-python -m pip check
-
-python - <<'PY'
-import torch
-import torch_npu
-import torchvision
-import torchaudio
-import transformers
-import librosa
-
-print("torch:", torch.__version__)
-print("torch_npu:", torch_npu.__version__)
-print("torchvision:", torchvision.__version__)
-print("torchaudio:", torchaudio.__version__)
-print("transformers:", transformers.__version__)
-print("librosa:", librosa.__version__)
-print("NPU available:", torch.npu.is_available())
-PY
-```
-
-## 8. 运行无权重 NPU smoke
-
-```bash
-cd /hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend
-
-DIFFSYNTH_DEVICE=npu \
-DIFFSYNTH_ATTENTION_IMPLEMENTATION=torch \
+cd /workspace/DiffSynth-Studio-Ascend
+npu-smi info
 python scripts/ascend_npu_smoke.py
+python tests/test_ascend_wan_rope.py
 ```
 
-必须看到类似输出：
+验收结果：
 
 ```text
-PASS: BF16 SDPA, BF16 Conv3D and FP32 AdamW forward/backward
+PASS: BF16 SDPA
+PASS: BF16 Conv3D
+PASS: FP32 AdamW forward/backward
+Ran 4 tests
+OK
 ```
 
-该步骤不需要模型权重。如果失败，不要继续模型训练。
+## 6. 下载模型、Tokenizer 和示例数据
 
-## 9. 下载 TI2V-5B 权重
-
-统一设置模型根目录：
+在容器内设置统一模型目录：
 
 ```bash
 export DIFFSYNTH_MODEL_BASE_PATH=/hpc-to-ds-0115/x00876811/models
-mkdir -p "$DIFFSYNTH_MODEL_BASE_PATH"
+export DATA_BASE_PATH=/workspace/DiffSynth-Studio-Ascend/data/diffsynth_example_dataset
 ```
 
-下载 TI2V-5B DiT：
+下载 TI2V-5B 及其数据：
 
 ```bash
-modelscope download \
-  --model Wan-AI/Wan2.2-TI2V-5B \
-  --include 'diffusion_pytorch_model*.safetensors' \
-  --local_dir "$DIFFSYNTH_MODEL_BASE_PATH/Wan-AI/Wan2.2-TI2V-5B"
+bash scripts/download_wan22_lora_assets.sh ti2v-5b
 ```
 
-下载公共 T5 和 Wan2.2 VAE：
+下载 T2V-A14B 及其数据：
 
 ```bash
-modelscope download \
-  --model DiffSynth-Studio/Wan-Series-Converted-Safetensors \
-  --include 'models_t5_umt5-xxl-enc-bf16.safetensors' \
-  --include 'Wan2.2_VAE.safetensors' \
-  --local_dir "$DIFFSYNTH_MODEL_BASE_PATH/DiffSynth-Studio/Wan-Series-Converted-Safetensors"
+bash scripts/download_wan22_lora_assets.sh t2v-a14b
 ```
 
-下载 tokenizer：
+下载 I2V-A14B 及其数据：
 
 ```bash
-modelscope download \
-  --model Wan-AI/Wan2.1-T2V-1.3B \
-  --include 'google/umt5-xxl/*' \
-  --local_dir "$DIFFSYNTH_MODEL_BASE_PATH/Wan-AI/Wan2.1-T2V-1.3B"
+bash scripts/download_wan22_lora_assets.sh i2v-a14b
 ```
 
-## 10. 下载 TI2V-5B 示例数据
-
-在仓库根目录执行：
-
-```bash
-cd /hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend
-
-modelscope download \
-  --dataset DiffSynth-Studio/diffsynth_example_dataset \
-  --include 'wanvideo/Wan2.2-TI2V-5B/*' \
-  --local_dir ./data/diffsynth_example_dataset
-```
-
-确认数据：
-
-```bash
-ls -lh data/diffsynth_example_dataset/wanvideo/Wan2.2-TI2V-5B/metadata.csv
-```
-
-## 11. 检查本地文件布局
-
-启动训练前应至少具备：
+每条命令完成后均输出：
 
 ```text
-/hpc-to-ds-0115/x00876811/models/
-├── Wan-AI/
-│   ├── Wan2.2-TI2V-5B/
-│   │   └── diffusion_pytorch_model*.safetensors
-│   └── Wan2.1-T2V-1.3B/
-│       └── google/umt5-xxl/
-└── DiffSynth-Studio/
-    └── Wan-Series-Converted-Safetensors/
-        ├── models_t5_umt5-xxl-enc-bf16.safetensors
-        └── Wan2.2_VAE.safetensors
+Wan2.2 <profile> assets: OK
 ```
 
-可以用以下命令快速检查：
+下载脚本会完整保存对应模型仓库，并准备：
+
+- DiT 权重；
+- T5 权重；
+- VAE 权重；
+- UMT5 Tokenizer；
+- 对应任务的示例数据和 `metadata.csv`。
+
+## 7. 设置训练环境
+
+在容器内执行：
 
 ```bash
-find /hpc-to-ds-0115/x00876811/models \
-  -type f \
-  \( -name '*.safetensors' -o -name 'tokenizer_config.json' -o -name 'spiece.model' \) \
-  | sort
-```
-
-## 12. 启动 TI2V-5B 文生视频 LoRA
-
-设置运行环境：
-
-```bash
-cd /hpc-to-ds-0115/x00876811/DiffSynth-Studio-Ascend
+cd /workspace/DiffSynth-Studio-Ascend
 
 export DIFFSYNTH_MODEL_BASE_PATH=/hpc-to-ds-0115/x00876811/models
 export DIFFSYNTH_SKIP_DOWNLOAD=True
@@ -341,141 +182,143 @@ export DIFFSYNTH_DEVICE=npu
 export DIFFSYNTH_ATTENTION_IMPLEMENTATION=torch
 export TOKENIZERS_PARALLELISM=false
 export HCCL_CONNECT_TIMEOUT=1800
-
-mkdir -p /hpc-to-ds-0115/x00876811/{outputs/ascend_smoke,logs}
 ```
 
-启动单卡、256×256、9 帧、rank 8 的最小训练：
+训练使用 BF16 模型计算和 FP32 AdamW 优化器状态。模型、数据和输出路径在所有训练命令中保持一致。
+
+## 8. TI2V-5B T2V 冒烟训练
 
 ```bash
-set -o pipefail
-
 NPROC_PER_NODE=1 \
 HEIGHT=256 \
 WIDTH=256 \
 NUM_FRAMES=9 \
 LORA_RANK=8 \
 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs/ascend_smoke \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-t2v \
-2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-t2v.log
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-t2v.log
 ```
 
-训练过程中可以在另一个终端观察：
+验收训练输出：
 
 ```bash
-watch -n 2 npu-smi info
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/ti2v-5b-t2v
 ```
 
-## 13. 验收 LoRA 结果
-
-查看 checkpoint：
-
-```bash
-find /hpc-to-ds-0115/x00876811/outputs/ascend_smoke/ti2v-5b-t2v \
-  -type f -ls
-```
-
-启动脚本默认启用 CSV loss 日志。查看 loss：
-
-```bash
-cat /hpc-to-ds-0115/x00876811/outputs/ascend_smoke/ti2v-5b-t2v/loss.csv
-```
-
-检查 checkpoint 中所有 LoRA 张量是否有限：
-
-```bash
-python - <<'PY'
-from pathlib import Path
-from safetensors import safe_open
-import torch
-
-root = Path("/hpc-to-ds-0115/x00876811/outputs/ascend_smoke/ti2v-5b-t2v")
-files = sorted(root.rglob("*.safetensors"))
-assert files, "没有找到 LoRA checkpoint"
-
-for path in files:
-    with safe_open(path, framework="pt", device="cpu") as f:
-        bad = [key for key in f.keys() if not torch.isfinite(f.get_tensor(key)).all()]
-    assert not bad, f"{path} 包含 nan/inf: {bad}"
-    print("PASS:", path)
-PY
-```
-
-本阶段的通过标准：
-
-- 训练命令正常退出；
-- 至少生成一个非空 `.safetensors` checkpoint；
-- `loss.csv` 中存在有限 loss；
-- checkpoint 中没有 `nan` 或 `inf`。
-
-## 14. 下一步
-
-TI2V-5B 文生视频通过后，使用同一套模型和数据验证图生视频分支：
-
-```bash
-NPROC_PER_NODE=1 \
-HEIGHT=256 \
-WIDTH=256 \
-NUM_FRAMES=9 \
-LORA_RANK=8 \
-DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs/ascend_smoke \
-bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-i2v \
-2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-i2v.log
-```
-
-两个分支均通过后，将 `DATASET_REPEAT` 提高到 20～100 做小数据过拟合，确认
-loss 总体下降。之后再依次推进 T2V-A14B high/low、I2V-A14B high/low、多卡
-DDP 和 CUDA/NPU 精度对齐。
-
-## 15. 保存成功环境
-
-第一次成功后立即保存环境，以便重建镜像：
-
-```bash
-python -m pip freeze \
-  > /hpc-to-ds-0115/x00876811/logs/success-requirements.txt
-
-npu-smi info \
-  > /hpc-to-ds-0115/x00876811/logs/success-npu-info.txt
-```
-
-后续生产镜像应以这份成功环境为基础锁定依赖，不再使用无版本限制的
-`pip install -U torch torchvision torchaudio`。
-
-## 16. 常见问题
-
-### `Installing build dependencies` 长时间无进度
-
-```bash
-python -m pip install -vvv --no-index --no-build-isolation --no-deps -e .
-```
-
-### `libcudart.so.13` 不存在
-
-说明误装了 CUDA 版 PyTorch、torchvision 或 torchaudio。不要安装 CUDA runtime，
-应恢复 PyTorch 2.7.1 对应的 CPU wheel，并保留 TorchNPU 2.7.1.post8。
-
-### 找不到公共 T5 或 VAE
-
-检查：
-
-```bash
-find /hpc-to-ds-0115/x00876811/models \
-  -type f \
-  -name 'models_t5_umt5-xxl-enc-bf16*' \
-  -o -name 'Wan2.2_VAE*'
-```
-
-公共文件必须位于：
+通过时输出：
 
 ```text
-/hpc-to-ds-0115/x00876811/models/DiffSynth-Studio/Wan-Series-Converted-Safetensors/
+LoRA checkpoints: <数量>
+Loss records: <数量>
+Loss range: <最小值> .. <最大值>
+LoRA run verification: PASS
 ```
 
-### 最后只看到 `CalledProcessError`
+## 9. TI2V-5B I2V 冒烟训练
 
-`CalledProcessError` 只是 Accelerate 对子进程失败的汇总。应从日志中寻找最早出现的
-`Traceback` 和第一条实际异常。
+```bash
+NPROC_PER_NODE=1 \
+HEIGHT=256 \
+WIDTH=256 \
+NUM_FRAMES=9 \
+LORA_RANK=8 \
+DATASET_REPEAT=1 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-i2v \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-i2v.log
 
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/ti2v-5b-i2v
+```
+
+## 10. T2V-A14B 冒烟训练
+
+Wan2.2 T2V-A14B 由 high-noise 和 low-noise 两个 DiT 组成，因此分别训练两个 LoRA。
+
+```bash
+NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-high \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/t2v-high.log
+
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/t2v-high
+```
+
+```bash
+NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-low \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/t2v-low.log
+
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/t2v-low
+```
+
+## 11. I2V-A14B 冒烟训练
+
+Wan2.2 I2V-A14B 同样分别训练 high-noise 和 low-noise 两个 LoRA。
+
+```bash
+NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-high \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/i2v-high.log
+
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/i2v-high
+```
+
+```bash
+NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-low \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/i2v-low.log
+
+python scripts/verify_lora_run.py \
+  /hpc-to-ds-0115/x00876811/outputs/i2v-low
+```
+
+## 12. 正式训练参数
+
+冒烟训练全部通过后，沿用相同脚本并调整训练规模：
+
+```bash
+NPROC_PER_NODE=1 \
+HEIGHT=480 \
+WIDTH=832 \
+NUM_FRAMES=49 \
+LORA_RANK=32 \
+DATASET_REPEAT=100 \
+NUM_EPOCHS=5 \
+SAVE_STEPS=100 \
+LORA_TARGET_MODULES=q,k,v,o,ffn.0,ffn.2 \
+OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-t2v \
+  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-t2v-train.log
+```
+
+将最后一个参数替换为相应训练单元即可执行其余任务：
+
+```text
+ti2v-5b-i2v
+t2v-high
+t2v-low
+i2v-high
+i2v-low
+```
+
+每个正式训练任务结束后执行 `scripts/verify_lora_run.py`，其 `PASS` 结果作为本次训练产物验收记录。
+
+## 13. 完整验收标准
+
+每个训练单元必须同时满足：
+
+- 训练进程退出码为 0；
+- 输出目录存在非空 LoRA `safetensors`；
+- LoRA 文件包含张量，且全部张量为有限数值；
+- `loss.csv` 存在有效 loss 记录；
+- 所有 loss 均为有限数值；
+- `scripts/verify_lora_run.py` 输出 `LoRA run verification: PASS`。

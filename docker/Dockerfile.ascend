@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+
+ARG BASE_IMAGE=quay.io/ascend/mindspeed-mm:v26.1.0-cann9.1.0-torch_npu2.7.1.post8-910b-ubuntu22.04-py3.11
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-lc"]
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_INDEX_URL=https://pypi.org/simple \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1 \
+    TOKENIZERS_PARALLELISM=false \
+    DIFFSYNTH_DEVICE=npu \
+    DIFFSYNTH_ATTENTION_IMPLEMENTATION=torch \
+    HCCL_CONNECT_TIMEOUT=1800
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        git \
+        git-lfs \
+        libgl1 \
+        libglib2.0-0 \
+        libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/diffsynth-build
+COPY constraints/ascend-torch-2.7.1.txt ./constraints/
+COPY requirements/ascend-runtime.txt ./requirements/
+
+RUN python -m pip config unset global.index-url || true; \
+    python -m pip install "setuptools>=77" wheel; \
+    if [ "$(uname -m)" = "x86_64" ]; then \
+        python -m pip install --force-reinstall --no-deps \
+          --index-url https://download.pytorch.org/whl/cpu \
+          "torchvision==0.22.1+cpu" "torchaudio==2.7.1+cpu"; \
+    else \
+        python -m pip install --force-reinstall --no-deps \
+          "torchvision==0.22.1" "torchaudio==2.7.1"; \
+    fi; \
+    python -m pip install \
+      -c constraints/ascend-torch-2.7.1.txt \
+      -r requirements/ascend-runtime.txt
+
+WORKDIR /workspace/DiffSynth-Studio-Ascend
+COPY . .
+
+RUN python -m pip install --no-build-isolation --no-deps -e .
+
+RUN python -c 'import librosa, torch, torch_npu, torchaudio, torchvision; \
+assert torch.__version__.split("+")[0] == "2.7.1", torch.__version__; \
+assert torch_npu.__version__ == "2.7.1.post8", torch_npu.__version__; \
+assert torchvision.__version__.split("+")[0] == "0.22.1", torchvision.__version__; \
+assert torchaudio.__version__.split("+")[0] == "2.7.1", torchaudio.__version__; \
+print("DiffSynth Ascend framework versions: OK")'
+
+RUN python tests/test_ascend_wan_rope.py
+
+CMD ["/bin/bash"]

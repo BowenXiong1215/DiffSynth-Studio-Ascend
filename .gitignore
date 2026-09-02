@@ -3,6 +3,8 @@
 /scripts/*
 !/scripts/ascend_npu_smoke.py
 !/scripts/compare_alignment_tensors.py
+!/scripts/download_wan22_lora_assets.sh
+!/scripts/verify_lora_run.py
 /diffusers
 /.vscode
 /.opencode
