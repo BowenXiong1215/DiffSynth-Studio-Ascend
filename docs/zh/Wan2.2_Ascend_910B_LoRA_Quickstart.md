@@ -16,8 +16,8 @@
 宿主机工作根目录：
 
 ```bash
-export WORK_ROOT=/hpc-to-ds-0115/x00876811
-export REPO_ROOT=${WORK_ROOT}/DiffSynth-Studio-Ascend
+export WORK_ROOT=/path/to/workspace
+export REPO_ROOT=${WORK_ROOT}/DiffSynth-Studio
 export MODEL_ROOT=${WORK_ROOT}/models
 export OUTPUT_ROOT=${WORK_ROOT}/outputs
 export LOG_ROOT=${WORK_ROOT}/logs
@@ -27,20 +27,14 @@ mkdir -p "${MODEL_ROOT}" "${OUTPUT_ROOT}" "${LOG_ROOT}" "${REPO_ROOT}/data"
 
 本文后续命令均使用以上目录。
 
-## 2. 获取代码
-
-```bash
-cd "${WORK_ROOT}"
-git clone https://github.com/BowenXiong1215/DiffSynth-Studio-Ascend.git
-cd "${REPO_ROOT}"
-```
-
-已存在仓库时同步主分支：
+## 2. 进入源码目录
 
 ```bash
 cd "${REPO_ROOT}"
-git pull origin main
+test -f UPSTREAM_COMMIT
 ```
+
+源码下载与补丁安装按照补丁包根目录的 `README.md` 完成。
 
 ## 3. 构建配套镜像
 
@@ -94,9 +88,9 @@ docker run --rm -it \
   -v /usr/local/Ascend/driver/lib64:/usr/local/Ascend/driver/lib64 \
   -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info \
   -v /etc/ascend_install.info:/etc/ascend_install.info \
-  -v "${MODEL_ROOT}:${MODEL_ROOT}" \
-  -v "${OUTPUT_ROOT}:${OUTPUT_ROOT}" \
-  -v "${LOG_ROOT}:${LOG_ROOT}" \
+  -v "${MODEL_ROOT}:/workspace/models" \
+  -v "${OUTPUT_ROOT}:/workspace/outputs" \
+  -v "${LOG_ROOT}:/workspace/logs" \
   -v "${REPO_ROOT}/data:/workspace/DiffSynth-Studio-Ascend/data" \
   diffsynth-wan22-ascend:torch2.7.1-cann9.1
 ```
@@ -133,7 +127,7 @@ OK
 在容器内设置统一模型目录：
 
 ```bash
-export DIFFSYNTH_MODEL_BASE_PATH=/hpc-to-ds-0115/x00876811/models
+export DIFFSYNTH_MODEL_BASE_PATH=/workspace/models
 export DATA_BASE_PATH=/workspace/DiffSynth-Studio-Ascend/data/diffsynth_example_dataset
 ```
 
@@ -176,7 +170,7 @@ Wan2.2 <profile> assets: OK
 ```bash
 cd /workspace/DiffSynth-Studio-Ascend
 
-export DIFFSYNTH_MODEL_BASE_PATH=/hpc-to-ds-0115/x00876811/models
+export DIFFSYNTH_MODEL_BASE_PATH=/workspace/models
 export DIFFSYNTH_SKIP_DOWNLOAD=True
 export DIFFSYNTH_DEVICE=npu
 export DIFFSYNTH_ATTENTION_IMPLEMENTATION=torch
@@ -195,16 +189,16 @@ WIDTH=256 \
 NUM_FRAMES=9 \
 LORA_RANK=8 \
 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-t2v \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-t2v.log
+  2>&1 | tee /workspace/logs/ti2v-5b-t2v.log
 ```
 
 验收训练输出：
 
 ```bash
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/ti2v-5b-t2v
+  /workspace/outputs/ti2v-5b-t2v
 ```
 
 通过时输出：
@@ -225,12 +219,12 @@ WIDTH=256 \
 NUM_FRAMES=9 \
 LORA_RANK=8 \
 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-i2v \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-i2v.log
+  2>&1 | tee /workspace/logs/ti2v-5b-i2v.log
 
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/ti2v-5b-i2v
+  /workspace/outputs/ti2v-5b-i2v
 ```
 
 ## 10. T2V-A14B 冒烟训练
@@ -239,22 +233,22 @@ Wan2.2 T2V-A14B 由 high-noise 和 low-noise 两个 DiT 组成，因此分别训
 
 ```bash
 NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-high \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/t2v-high.log
+  2>&1 | tee /workspace/logs/t2v-high.log
 
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/t2v-high
+  /workspace/outputs/t2v-high
 ```
 
 ```bash
 NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-low \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/t2v-low.log
+  2>&1 | tee /workspace/logs/t2v-low.log
 
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/t2v-low
+  /workspace/outputs/t2v-low
 ```
 
 ## 11. I2V-A14B 冒烟训练
@@ -263,22 +257,22 @@ Wan2.2 I2V-A14B 同样分别训练 high-noise 和 low-noise 两个 LoRA。
 
 ```bash
 NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-high \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/i2v-high.log
+  2>&1 | tee /workspace/logs/i2v-high.log
 
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/i2v-high
+  /workspace/outputs/i2v-high
 ```
 
 ```bash
 NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-low \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/i2v-low.log
+  2>&1 | tee /workspace/logs/i2v-low.log
 
 python scripts/verify_lora_run.py \
-  /hpc-to-ds-0115/x00876811/outputs/i2v-low
+  /workspace/outputs/i2v-low
 ```
 
 ## 12. 正式训练参数
@@ -295,9 +289,9 @@ DATASET_REPEAT=100 \
 NUM_EPOCHS=5 \
 SAVE_STEPS=100 \
 LORA_TARGET_MODULES=q,k,v,o,ffn.0,ffn.2 \
-OUTPUT_ROOT=/hpc-to-ds-0115/x00876811/outputs \
+OUTPUT_ROOT=/workspace/outputs \
 bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-t2v \
-  2>&1 | tee /hpc-to-ds-0115/x00876811/logs/ti2v-5b-t2v-train.log
+  2>&1 | tee /workspace/logs/ti2v-5b-t2v-train.log
 ```
 
 将最后一个参数替换为相应训练单元即可执行其余任务：

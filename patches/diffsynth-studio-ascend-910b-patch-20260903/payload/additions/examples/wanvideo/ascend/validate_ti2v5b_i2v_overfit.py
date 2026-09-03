@@ -14,26 +14,19 @@ from diffsynth.pipelines.wan_video import ModelConfig, WanVideoPipeline
 from diffsynth.utils.data import VideoData, save_video
 
 
-DEFAULT_ROOT = Path("/hpc-to-ds-0115/x00876811")
-DEFAULT_REPO = DEFAULT_ROOT / "DiffSynth-Studio-Ascend-main"
-DEFAULT_DATASET = (
-    DEFAULT_REPO
-    / "data/diffsynth_example_dataset/wanvideo/Wan2.2-TI2V-5B"
+DEFAULT_DATASET = Path(
+    "data/diffsynth_example_dataset/wanvideo/Wan2.2-TI2V-5B"
 )
-DEFAULT_CHECKPOINT = (
-    DEFAULT_ROOT
-    / "outputs/ti2v-5b-i2v-overfit/step-500.safetensors"
-)
-DEFAULT_OUTPUT = DEFAULT_ROOT / "outputs/ti2v-5b-i2v-overfit-validation"
+DEFAULT_OUTPUT = Path("outputs/ti2v5b-i2v-lora-validation")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate target, base and LoRA videos for TI2V-5B I2V validation."
     )
-    parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
+    parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--dataset-dir", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument("--metadata", default="metadata_overfit.csv")
+    parser.add_argument("--metadata", default="metadata.csv")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--height", type=int, default=256)
     parser.add_argument("--width", type=int, default=256)

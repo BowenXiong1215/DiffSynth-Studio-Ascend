@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROFILE="${1:-ti2v-5b}"
-MODEL_BASE_PATH="${DIFFSYNTH_MODEL_BASE_PATH:-/hpc-to-ds-0115/x00876811/models}"
+MODEL_BASE_PATH="${DIFFSYNTH_MODEL_BASE_PATH:-$(pwd)/models}"
 DATA_BASE_PATH="${DATA_BASE_PATH:-data/diffsynth_example_dataset}"
 
 case "${PROFILE}" in
