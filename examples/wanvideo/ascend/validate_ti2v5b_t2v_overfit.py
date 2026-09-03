@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import torch
+from PIL import Image, ImageDraw
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -42,6 +43,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--fps", type=int, default=15)
     parser.add_argument("--lora-alpha", type=float, default=1.0)
+    parser.add_argument("--grid-columns", type=int, default=7)
     return parser.parse_args()
 
 
@@ -89,6 +91,35 @@ def load_pipeline(device):
     )
 
 
+def save_frame_grid(frames, path, columns):
+    if not frames:
+        raise ValueError("Cannot create a grid from an empty frame list")
+    if columns <= 0:
+        raise ValueError("grid-columns must be positive")
+
+    frames = [frame.convert("RGB") for frame in frames]
+    frame_width, frame_height = frames[0].size
+    rows = (len(frames) + columns - 1) // columns
+    grid = Image.new(
+        "RGB",
+        (columns * frame_width, rows * frame_height),
+        color=(0, 0, 0),
+    )
+
+    for index, frame in enumerate(frames):
+        if frame.size != (frame_width, frame_height):
+            frame = frame.resize((frame_width, frame_height))
+        x = (index % columns) * frame_width
+        y = (index // columns) * frame_height
+        grid.paste(frame, (x, y))
+        draw = ImageDraw.Draw(grid)
+        label = f"#{index:02d}"
+        draw.rectangle((x + 4, y + 4, x + 42, y + 20), fill=(0, 0, 0))
+        draw.text((x + 7, y + 6), label, fill=(255, 255, 255))
+
+    grid.save(path)
+
+
 def main():
     args = parse_args()
     metadata_path = args.dataset_dir / args.metadata
@@ -113,7 +144,11 @@ def main():
     target_path = args.output_dir / "target.mp4"
     base_path = args.output_dir / "base.mp4"
     lora_path = args.output_dir / "lora.mp4"
+    target_grid_path = args.output_dir / "target_grid.png"
+    base_grid_path = args.output_dir / "base_grid.png"
+    lora_grid_path = args.output_dir / "lora_grid.png"
     save_video(target_frames, str(target_path), fps=args.fps, quality=8)
+    save_frame_grid(target_frames, target_grid_path, args.grid_columns)
 
     pipe = load_pipeline(device)
     generation_args = {
@@ -128,18 +163,25 @@ def main():
     }
 
     print("Generating base.mp4...")
-    save_video(pipe(**generation_args), str(base_path), fps=args.fps, quality=8)
+    base_frames = pipe(**generation_args)
+    save_video(base_frames, str(base_path), fps=args.fps, quality=8)
+    save_frame_grid(base_frames, base_grid_path, args.grid_columns)
 
     print("Loading LoRA...")
     pipe.load_lora(pipe.dit, str(args.checkpoint), alpha=args.lora_alpha)
 
     print("Generating lora.mp4...")
-    save_video(pipe(**generation_args), str(lora_path), fps=args.fps, quality=8)
+    lora_frames = pipe(**generation_args)
+    save_video(lora_frames, str(lora_path), fps=args.fps, quality=8)
+    save_frame_grid(lora_frames, lora_grid_path, args.grid_columns)
 
     print("Validation completed:")
     print(f"Target: {target_path}")
     print(f"Base:   {base_path}")
     print(f"LoRA:   {lora_path}")
+    print(f"Target grid: {target_grid_path}")
+    print(f"Base grid:   {base_grid_path}")
+    print(f"LoRA grid:   {lora_grid_path}")
 
 
 if __name__ == "__main__":
