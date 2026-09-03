@@ -51,7 +51,7 @@ def require_file(path, name):
 
 
 def load_first_sample(dataset_dir, metadata_path, height, width, num_frames):
-    with metadata_path.open(encoding="utf-8") as file:
+    with metadata_path.open(encoding="utf-8-sig") as file:
         row = next(csv.DictReader(file))
 
     video_path = Path(row["video"])
