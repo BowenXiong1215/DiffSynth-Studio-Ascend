@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Correctness-first Wan2.2 LoRA smoke tests for Ascend 910B.
 # Usage: bash examples/wanvideo/ascend/train_lora_smoke.sh MODEL
-# MODEL: ti2v-5b-t2v | ti2v-5b-i2v | t2v-high | t2v-low | i2v-high | i2v-low
+# MODEL: ti2v-5b-t2v | ti2v-5b-i2v
 
 MODEL="${1:-ti2v-5b-t2v}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
@@ -34,28 +34,8 @@ case "${MODEL}" in
     MODEL_PATHS="Wan-AI/Wan2.2-TI2V-5B:diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.2-TI2V-5B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.2-TI2V-5B:Wan2.2_VAE.pth"
     EXTRA_ARGS=(--extra_inputs input_image --max_timestep_boundary 1 --min_timestep_boundary 0)
     ;;
-  t2v-high)
-    DATASET_NAME="Wan2.2-T2V-A14B"
-    MODEL_PATHS="Wan-AI/Wan2.2-T2V-A14B:high_noise_model/diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.2-T2V-A14B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.2-T2V-A14B:Wan2.1_VAE.pth"
-    EXTRA_ARGS=(--max_timestep_boundary 0.417 --min_timestep_boundary 0)
-    ;;
-  t2v-low)
-    DATASET_NAME="Wan2.2-T2V-A14B"
-    MODEL_PATHS="Wan-AI/Wan2.2-T2V-A14B:low_noise_model/diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.2-T2V-A14B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.2-T2V-A14B:Wan2.1_VAE.pth"
-    EXTRA_ARGS=(--max_timestep_boundary 1 --min_timestep_boundary 0.417)
-    ;;
-  i2v-high)
-    DATASET_NAME="Wan2.2-I2V-A14B"
-    MODEL_PATHS="Wan-AI/Wan2.2-I2V-A14B:high_noise_model/diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.2-I2V-A14B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.2-I2V-A14B:Wan2.1_VAE.pth"
-    EXTRA_ARGS=(--extra_inputs input_image --max_timestep_boundary 0.358 --min_timestep_boundary 0)
-    ;;
-  i2v-low)
-    DATASET_NAME="Wan2.2-I2V-A14B"
-    MODEL_PATHS="Wan-AI/Wan2.2-I2V-A14B:low_noise_model/diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.2-I2V-A14B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.2-I2V-A14B:Wan2.1_VAE.pth"
-    EXTRA_ARGS=(--extra_inputs input_image --max_timestep_boundary 1 --min_timestep_boundary 0.358)
-    ;;
   *)
-    echo "Unknown MODEL '${MODEL}'. Expected ti2v-5b-t2v, ti2v-5b-i2v, t2v-high, t2v-low, i2v-high or i2v-low." >&2
+    echo "Unknown MODEL '${MODEL}'. Expected ti2v-5b-t2v or ti2v-5b-i2v." >&2
     exit 2
     ;;
 esac

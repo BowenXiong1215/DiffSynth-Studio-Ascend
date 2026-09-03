@@ -11,19 +11,9 @@ case "${PROFILE}" in
     DATASET_NAME="Wan2.2-TI2V-5B"
     VAE_NAME="Wan2.2_VAE.pth"
     ;;
-  t2v-a14b)
-    MODEL_ID="Wan-AI/Wan2.2-T2V-A14B"
-    DATASET_NAME="Wan2.2-T2V-A14B"
-    VAE_NAME="Wan2.1_VAE.pth"
-    ;;
-  i2v-a14b)
-    MODEL_ID="Wan-AI/Wan2.2-I2V-A14B"
-    DATASET_NAME="Wan2.2-I2V-A14B"
-    VAE_NAME="Wan2.1_VAE.pth"
-    ;;
   *)
     echo "Unknown profile: ${PROFILE}" >&2
-    echo "Expected: ti2v-5b, t2v-a14b or i2v-a14b" >&2
+    echo "Expected: ti2v-5b" >&2
     exit 2
     ;;
 esac
@@ -46,14 +36,6 @@ test -f "${MODEL_DIR}/${VAE_NAME}"
 test -f "${TOKENIZER_DIR}/google/umt5-xxl/tokenizer_config.json"
 test -f "${DATA_BASE_PATH}/wanvideo/${DATASET_NAME}/metadata.csv"
 
-case "${PROFILE}" in
-  ti2v-5b)
-    compgen -G "${MODEL_DIR}/diffusion_pytorch_model*.safetensors" >/dev/null
-    ;;
-  *)
-    compgen -G "${MODEL_DIR}/high_noise_model/diffusion_pytorch_model*.safetensors" >/dev/null
-    compgen -G "${MODEL_DIR}/low_noise_model/diffusion_pytorch_model*.safetensors" >/dev/null
-    ;;
-esac
+compgen -G "${MODEL_DIR}/diffusion_pytorch_model*.safetensors" >/dev/null
 
 echo "Wan2.2 ${PROFILE} assets: OK"

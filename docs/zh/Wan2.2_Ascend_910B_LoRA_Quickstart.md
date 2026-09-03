@@ -6,10 +6,8 @@
 | --- | --- | --- |
 | Wan2.2-TI2V-5B | T2V | 1 个 LoRA |
 | Wan2.2-TI2V-5B | I2V | 1 个 LoRA |
-| Wan2.2-T2V-A14B | T2V | high-noise、low-noise 各 1 个 LoRA |
-| Wan2.2-I2V-A14B | I2V | high-noise、low-noise 各 1 个 LoRA |
 
-建议先完成 TI2V-5B T2V 冒烟训练，再依次执行 TI2V-5B I2V、T2V-A14B 和 I2V-A14B。
+建议先完成 TI2V-5B T2V 冒烟训练，再执行 TI2V-5B I2V。
 
 ## 1. 目录约定
 
@@ -137,19 +135,7 @@ export DATA_BASE_PATH=/workspace/DiffSynth-Studio-Ascend/data/diffsynth_example_
 bash scripts/download_wan22_lora_assets.sh ti2v-5b
 ```
 
-下载 T2V-A14B 及其数据：
-
-```bash
-bash scripts/download_wan22_lora_assets.sh t2v-a14b
-```
-
-下载 I2V-A14B 及其数据：
-
-```bash
-bash scripts/download_wan22_lora_assets.sh i2v-a14b
-```
-
-每条命令完成后均输出：
+命令完成后输出：
 
 ```text
 Wan2.2 <profile> assets: OK
@@ -227,55 +213,7 @@ python scripts/verify_lora_run.py \
   /workspace/outputs/ti2v-5b-i2v
 ```
 
-## 10. T2V-A14B 冒烟训练
-
-Wan2.2 T2V-A14B 由 high-noise 和 low-noise 两个 DiT 组成，因此分别训练两个 LoRA。
-
-```bash
-NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/workspace/outputs \
-bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-high \
-  2>&1 | tee /workspace/logs/t2v-high.log
-
-python scripts/verify_lora_run.py \
-  /workspace/outputs/t2v-high
-```
-
-```bash
-NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/workspace/outputs \
-bash examples/wanvideo/ascend/train_lora_smoke.sh t2v-low \
-  2>&1 | tee /workspace/logs/t2v-low.log
-
-python scripts/verify_lora_run.py \
-  /workspace/outputs/t2v-low
-```
-
-## 11. I2V-A14B 冒烟训练
-
-Wan2.2 I2V-A14B 同样分别训练 high-noise 和 low-noise 两个 LoRA。
-
-```bash
-NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/workspace/outputs \
-bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-high \
-  2>&1 | tee /workspace/logs/i2v-high.log
-
-python scripts/verify_lora_run.py \
-  /workspace/outputs/i2v-high
-```
-
-```bash
-NPROC_PER_NODE=1 HEIGHT=256 WIDTH=256 NUM_FRAMES=9 LORA_RANK=8 DATASET_REPEAT=1 \
-OUTPUT_ROOT=/workspace/outputs \
-bash examples/wanvideo/ascend/train_lora_smoke.sh i2v-low \
-  2>&1 | tee /workspace/logs/i2v-low.log
-
-python scripts/verify_lora_run.py \
-  /workspace/outputs/i2v-low
-```
-
-## 12. 正式训练参数
+## 10. 正式训练参数
 
 冒烟训练全部通过后，沿用相同脚本并调整训练规模：
 
@@ -298,15 +236,11 @@ bash examples/wanvideo/ascend/train_lora_smoke.sh ti2v-5b-t2v \
 
 ```text
 ti2v-5b-i2v
-t2v-high
-t2v-low
-i2v-high
-i2v-low
 ```
 
 每个正式训练任务结束后执行 `scripts/verify_lora_run.py`，其 `PASS` 结果作为本次训练产物验收记录。
 
-## 13. 完整验收标准
+## 11. 完整验收标准
 
 每个训练单元必须同时满足：
 
